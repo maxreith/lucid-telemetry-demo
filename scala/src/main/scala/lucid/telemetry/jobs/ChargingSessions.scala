@@ -9,7 +9,7 @@ object ChargingSessions extends TelemetryJob {
   val description = "One record per charging session: duration, energy delivered, state of charge and peak power."
 
   def run(events: DataFrame): DataFrame = {
-    val charging = Events.ofType(events, "charging_start", "charging_progress", "charging_end")
+    val charging = Events.ofType(Events.dedup(events), "charging_start", "charging_progress", "charging_end")
     def when_(t: String, c: String) = when(col("type") === t, col(c))
     charging
       .groupBy("vin", "payload.session_id")
