@@ -4,14 +4,23 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 pub fn run(events: &[Event]) -> Vec<Value> {
-    let mut counts: BTreeMap<(&str, Option<&str>), i64> = BTreeMap::new();
+    let mut counts: BTreeMap<(&str, Option<String>), i64> = BTreeMap::new();
     for e in of_type(dedup(events), "diagnostic") {
-        *counts.entry((e.vin.as_str(), e.str("code"))).or_default() += 1;
+        *counts.entry((e.vin.as_str(), code(e))).or_default() += 1;
     }
     counts
         .into_iter()
         .map(|((vin, code), occurrences)| json!({"vin": vin, "code": code, "occurrences": occurrences}))
         .collect()
+}
+
+/// Spark reads `payload.code` as a string column, so a non-string JSON value becomes its text.
+fn code(e: &Event) -> Option<String> {
+    match e.payload.get("code")? {
+        Value::Null => None,
+        Value::String(s) => Some(s.clone()),
+        other => Some(other.to_string()),
+    }
 }
 
 #[cfg(test)]
@@ -67,6 +76,12 @@ mod tests {
         let out = run(&[event("a", "VIN1", "diagnostic", json!({})), dtc("b", "VIN1", "P0AA6")]);
         assert_eq!(occurrences(&out, "VIN1", Value::Null), Some(1));
         assert_eq!(occurrences(&out, "VIN1", json!("P0AA6")), Some(1));
+    }
+
+    #[test]
+    fn numeric_code_is_counted_as_its_text() {
+        let out = run(&[event("a", "VIN1", "diagnostic", json!({"code": 1234}))]);
+        assert_eq!(occurrences(&out, "VIN1", json!("1234")), Some(1));
     }
 
     #[test]
