@@ -1,8 +1,8 @@
 //! Port of scala/.../jobs/ChargingSessions.scala: one record per charging session with duration, energy
 //! delivered, state of charge and peak power.
 //!
-//! Like the Scala job, this reads the charging events without deduplicating them.
-use crate::Event;
+//! Resent events are dropped first, so a resent progress event is counted once.
+use crate::{dedup, Event};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
@@ -28,7 +28,7 @@ fn max_f64(acc: Option<f64>, v: Option<f64>) -> Option<f64> {
 pub fn run(events: &[Event]) -> Vec<Value> {
     let mut sessions: HashMap<(&str, Option<&str>), Session> = HashMap::new();
     let mut order = Vec::new();
-    for e in events {
+    for e in dedup(events) {
         if !matches!(
             e.kind.as_str(),
             "charging_start" | "charging_progress" | "charging_end"
@@ -182,11 +182,10 @@ mod tests {
         assert_eq!(out.len(), 2);
     }
 
-    /// Matches the Scala job, which does not drop resent events: a resent progress event is counted twice.
     #[test]
-    fn resent_progress_is_counted_like_the_scala_job() {
+    fn resent_progress_is_counted_once() {
         let p = progress("b", 60_000, 1.5, 50.0);
         let out = run(&[start("a", 0), p.clone(), p, end("d", 120_000, 30.0)]);
-        assert_eq!(out[0]["energy_kwh"], 3.0);
+        assert_eq!(out[0]["energy_kwh"], 1.5);
     }
 }
